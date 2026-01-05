@@ -139,7 +139,7 @@ namespace GameEngine
             // Handle object placement
             HandleObjectPlacement();
             
-            // Handle UI interactions
+            // Handle UI interactions (toolbar buttons)
             HandleUIInteractions();
         }
         
@@ -175,6 +175,8 @@ namespace GameEngine
             if (_inputSystem.IsKeyPressed(Microsoft.Xna.Framework.Input.Keys.D1))
             {
                 _currentTool = _tools[0]; // Select tool
+                _selectedObjectType = null;
+                _isPlacingObject = false;
             }
             else if (_inputSystem.IsKeyPressed(Microsoft.Xna.Framework.Input.Keys.D2))
             {
@@ -215,18 +217,104 @@ namespace GameEngine
                 Vector2 worldPos = ScreenToWorld(_inputSystem.MousePosition);
                 PlaceObject(_selectedObjectType, worldPos);
             }
+            else if (_inputSystem.IsMouseButtonPressed(MouseButton.LeftButton) && _currentTool?.Name == "Erase")
+            {
+                // Handle erasing objects
+                Vector2 worldPos = ScreenToWorld(_inputSystem.MousePosition);
+                EraseObjectAtPosition(worldPos);
+            }
+        }
+        
+        private void EraseObjectAtPosition(Vector2 position)
+        {
+            // Check if any placed object is at the clicked position
+            for (int i = _placedObjects.Count - 1; i >= 0; i--)
+            {
+                var entity = _placedObjects[i];
+                // Assuming default size of 32x32 for erasing area
+                Rectangle entityRect = new Rectangle((int)entity.Position.X - 16, (int)entity.Position.Y - 16, 32, 32);
+                
+                if (entityRect.Contains((int)position.X, (int)position.Y))
+                {
+                    // Remove the entity
+                    _placedObjects.RemoveAt(i);
+                    _entityManager.RemoveEntity(entity.Id);
+                    System.Diagnostics.Debug.WriteLine($"Erased object: {entity.Name} at {entity.Position}");
+                    break; // Only remove the topmost object
+                }
+            }
         }
         
         private void HandleUIInteractions()
         {
-            foreach (var uiElement in _uiElements.Values)
+            // Check if mouse is over the toolbar area to avoid conflicts with level editing
+            Vector2 mousePos = _inputSystem.MousePosition;
+            UIContainer toolbar = _uiElements["Toolbar"] as UIContainer;
+            if (toolbar != null && toolbar.Bounds.Contains((int)mousePos.X, (int)mousePos.Y))
             {
-                if (uiElement is UIButton button)
+                // Only check toolbar buttons when mouse is over toolbar
+                CheckToolbarButtons();
+            }
+            else
+            {
+                // Handle level editing interactions when mouse is not over toolbar
+                HandleLevelInteractions();
+            }
+        }
+        
+        private void CheckToolbarButtons()
+        {
+            // Check only toolbar-related UI elements
+            string[] toolbarButtons = { "SaveBtn", "LoadBtn", "PreviewBtn", "ExitBtn" };
+            
+            foreach (string btnName in toolbarButtons)
+            {
+                if (_uiElements.ContainsKey(btnName) && _uiElements[btnName] is UIButton button)
                 {
                     if (IsMouseOver(button.Bounds) && _inputSystem.IsMouseButtonPressed(MouseButton.LeftButton))
                     {
                         HandleEditorButton(button.Text);
+                        return; // Exit early to avoid multiple button presses
                     }
+                }
+            }
+        }
+        
+        private void HandleLevelInteractions()
+        {
+            // Handle level editing interactions when not over UI elements
+            if (_inputSystem.IsMouseButtonPressed(MouseButton.LeftButton))
+            {
+                // Check if we're placing an object
+                if (_isPlacingObject && _selectedObjectType != null)
+                {
+                    Vector2 worldPos = ScreenToWorld(_inputSystem.MousePosition);
+                    PlaceObject(_selectedObjectType, worldPos);
+                }
+                else
+                {
+                    // Handle selection or other level interactions
+                    HandleSelection();
+                }
+            }
+        }
+        
+        private void HandleSelection()
+        {
+            // Handle object selection when clicking on the level
+            Vector2 worldPos = ScreenToWorld(_inputSystem.MousePosition);
+            
+            // Check if any placed object is at the clicked position
+            foreach (var entity in _placedObjects)
+            {
+                // Assuming default size of 32x32 for selection area
+                Rectangle entityRect = new Rectangle((int)entity.Position.X - 16, (int)entity.Position.Y - 16, 32, 32);
+                
+                if (entityRect.Contains((int)worldPos.X, (int)worldPos.Y))
+                {
+                    // Object selected - for now just log it, in future we can highlight it
+                    System.Diagnostics.Debug.WriteLine($"Selected object: {entity.Name} at {entity.Position}");
+                    break;
                 }
             }
         }
@@ -286,6 +374,13 @@ namespace GameEngine
             return bounds.Contains((int)mousePos.X, (int)mousePos.Y);
         }
         
+        private Vector2 ScreenToEditor(Vector2 screenPos)
+        {
+            // Convert screen coordinates to editor coordinates (without considering camera position)
+            // This is used for UI elements and grid calculations
+            return screenPos;
+        }
+        
         private void PlaceObject(string objectType, Vector2 position)
         {
             Entity entity = _entityManager.CreateEntity(objectType);
@@ -296,21 +391,72 @@ namespace GameEngine
             {
                 case "PlayerSpawn":
                     // Add player-specific components
+                    var playerSprite = new SpriteComponent(entity)
+                    {
+                        TextureName = "Player",
+                        SourceRectangle = new Rectangle(0, 0, 32, 32),
+                        Tint = Color.Blue
+                    };
+                    entity.AddComponent(playerSprite);
                     break;
                 case "Enemy":
                     // Add enemy-specific components
+                    var enemySprite = new SpriteComponent(entity)
+                    {
+                        TextureName = "Enemy",
+                        SourceRectangle = new Rectangle(0, 0, 32, 32),
+                        Tint = Color.Red
+                    };
+                    entity.AddComponent(enemySprite);
+                    
                     var aiComponent = new AIComponent(entity);
                     aiComponent.BehaviorType = "Patrol";
                     entity.AddComponent(aiComponent);
                     break;
                 case "Wall":
                     // Add wall-specific components
+                    var wallSprite = new SpriteComponent(entity)
+                    {
+                        TextureName = "Wall",
+                        SourceRectangle = new Rectangle(0, 0, 32, 32),
+                        Tint = Color.Brown
+                    };
+                    entity.AddComponent(wallSprite);
+                    
                     var physicsComponent = new PhysicsComponent(entity);
                     physicsComponent.IsCollidable = true;
+                    physicsComponent.CollisionBox = new Rectangle(0, 0, 32, 32);
                     entity.AddComponent(physicsComponent);
+                    break;
+                case "Floor":
+                    // Add floor-specific components
+                    var floorSprite = new SpriteComponent(entity)
+                    {
+                        TextureName = "Floor",
+                        SourceRectangle = new Rectangle(0, 0, 32, 32),
+                        Tint = Color.Green
+                    };
+                    entity.AddComponent(floorSprite);
                     break;
                 case "Trigger":
                     // Add trigger-specific components
+                    var triggerSprite = new SpriteComponent(entity)
+                    {
+                        TextureName = "Trigger",
+                        SourceRectangle = new Rectangle(0, 0, 32, 32),
+                        Tint = Color.Purple
+                    };
+                    entity.AddComponent(triggerSprite);
+                    break;
+                default:
+                    // Default sprite component
+                    var defaultSprite = new SpriteComponent(entity)
+                    {
+                        TextureName = "Default",
+                        SourceRectangle = new Rectangle(0, 0, 32, 32),
+                        Tint = Color.White
+                    };
+                    entity.AddComponent(defaultSprite);
                     break;
             }
             
@@ -506,6 +652,7 @@ namespace GameEngine
             if (_isPlacingObject && _selectedObjectType != null)
             {
                 // Draw ghost/object placement indicator
+                DrawPlacementIndicator();
             }
 
             _renderSystem.EndDraw();
@@ -518,18 +665,21 @@ namespace GameEngine
             int screenWidth = _renderSystem.GraphicsDevice.Viewport.Width;
             int screenHeight = _renderSystem.GraphicsDevice.Viewport.Height;
             
-            // Calculate grid bounds based on camera position
+            // Calculate grid bounds based on camera position and zoom
             int startX = (int)(_cameraPosition.X / gridSize) * gridSize;
             int startY = (int)(_cameraPosition.Y / gridSize) * gridSize;
-            int endX = startX + screenWidth;
-            int endY = startY + screenHeight;
+            int endX = startX + (int)(screenWidth / _zoomLevel);
+            int endY = startY + (int)(screenHeight / _zoomLevel);
             
             // Draw vertical grid lines
             for (int x = startX; x <= endX; x += gridSize)
             {
                 // Calculate screen position of grid line
                 float screenX = (x - _cameraPosition.X) * _zoomLevel;
-                _renderSystem.DrawRectangle(new Rectangle((int)screenX, 0, 1, screenHeight), Color.LightGray, 1);
+                if (screenX >= -gridSize && screenX <= screenWidth + gridSize) // Only draw visible lines
+                {
+                    _renderSystem.DrawRectangle(new Rectangle((int)screenX, 0, 1, screenHeight), Color.LightGray, 1);
+                }
             }
             
             // Draw horizontal grid lines
@@ -537,10 +687,40 @@ namespace GameEngine
             {
                 // Calculate screen position of grid line
                 float screenY = (y - _cameraPosition.Y) * _zoomLevel;
-                _renderSystem.DrawRectangle(new Rectangle(0, (int)screenY, screenWidth, 1), Color.LightGray, 1);
+                if (screenY >= -gridSize && screenY <= screenHeight + gridSize) // Only draw visible lines
+                {
+                    _renderSystem.DrawRectangle(new Rectangle(0, (int)screenY, screenWidth, 1), Color.LightGray, 1);
+                }
             }
         }
     }
+        
+        private void DrawPlacementIndicator()
+        {
+            if (_selectedObjectType == null) return;
+            
+            // Get mouse position in world coordinates
+            Vector2 worldPos = ScreenToWorld(_inputSystem.MousePosition);
+            
+            // Determine the size of the placement indicator based on object type
+            int size = 32; // Default size
+            Rectangle placementRect = new Rectangle((int)worldPos.X - size/2, (int)worldPos.Y - size/2, size, size);
+            
+            // Draw a semi-transparent rectangle to indicate placement position
+            Color indicatorColor = Color.Yellow * 0.5f; // Semi-transparent yellow
+            _renderSystem.FillRectangle(new Rectangle((int)((placementRect.X - _cameraPosition.X) * _zoomLevel), 
+                                                     (int)((placementRect.Y - _cameraPosition.Y) * _zoomLevel), 
+                                                     (int)(placementRect.Width * _zoomLevel), 
+                                                     (int)(placementRect.Height * _zoomLevel)), 
+                                       indicatorColor);
+                                                     
+            // Draw border around placement indicator
+            _renderSystem.DrawRectangle(new Rectangle((int)((placementRect.X - _cameraPosition.X) * _zoomLevel), 
+                                                     (int)((placementRect.Y - _cameraPosition.Y) * _zoomLevel), 
+                                                     (int)(placementRect.Width * _zoomLevel), 
+                                                     (int)(placementRect.Height * _zoomLevel)), 
+                                       Color.Yellow, 2);
+        }
     
     // Supporting classes for the level editor
     public class UIElement
