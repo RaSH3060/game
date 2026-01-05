@@ -1,0 +1,11 @@
+#---------------------------------------
+# MonoGame Content Builder Configuration
+#---------------------------------------
+
+/platform:DesktopGL
+/outputDir:bin/DesktopGL
+/intermediateDir:obj/DesktopGL
+/workingDir:.
+
+/copy:dummy.txt
+/build:DefaultFont.spritefont
